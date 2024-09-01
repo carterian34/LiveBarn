@@ -1,13 +1,9 @@
-import time
-from dataclasses import dataclass
 import requests
 import asyncio
 import aiohttp
 import json
 from urllib.parse import urlparse
 from dotenv import dotenv_values
-from datetime import datetime
-import re
 import os
 
 credentials = dotenv_values(".env")
@@ -164,9 +160,10 @@ if __name__ == '__main__':
     surface_name = "USA Rink"
     date = "2024-09-01" # YYYY-MM-DD
     time = "13:00" # HH:MM
+    feed_mode_id = 4 # 4 -> Panoramic, 5 -> Auto Tracking
     for surface in livebarn.surfaces:
         if surface["venue_name"] == rink_name and surface["surface_name"] == surface_name:
-            content_urls = livebarn.get_content_urls(surface_id=surface["id"], feed_mode_id=4, begin_date=f"{date}T{time}")
+            content_urls = livebarn.get_content_urls(surface_id=surface["id"], feed_mode_id=feed_mode_id, begin_date=f"{date}T{time}")
             print("Downloading session segments")
             for chunk in divide_chunks(content_urls, 10):
                 asyncio.run(livebarn.download_content(chunk))
