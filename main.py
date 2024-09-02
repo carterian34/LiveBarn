@@ -5,6 +5,9 @@ import json
 from urllib.parse import urlparse
 from dotenv import dotenv_values
 import os
+import time
+import shutil
+from natsort import natsorted
 
 credentials = dotenv_values(".env")
 
@@ -142,10 +145,17 @@ class LiveBarn:
             tasks = self.create_download_content_jobs(session, urls)
             responses = await asyncio.gather(*tasks)
             for response in responses:
-                print(f"Writing to ./files/tmp/{urlparse(str(response.url)).path.split('/')[-1]}...", end="")
-                with open(f"./files/tmp/{urlparse(str(response.url)).path.split('/')[-1]}", "wb") as file:
+                if not os.path.exists(f"./files/tmp/{directory}"):
+                    os.makedirs(f"./files/tmp/{directory}")
+                with open(f"./files/tmp/{directory}/{urlparse(str(response.url)).path.split('/')[-1]}", "wb") as file:
                     file.write(await response.content.read())
-                    print("Success")
+
+    def combine_session_segments(self):
+        files = natsorted(os.listdir(f"./files/tmp/{directory}"))
+        with open(f'./{directory}.ts', 'wb') as merged:
+            for ts_file in files:
+                with open(f'./files/tmp/{directory}/{ts_file}', 'rb') as mergefile:
+                    shutil.copyfileobj(mergefile, merged)
 
 if __name__ == '__main__':
     if not os.path.exists("./files"):
@@ -156,14 +166,27 @@ if __name__ == '__main__':
     livebarn = LiveBarn(username=credentials["username"], password=credentials["password"])
     livebarn.generate_bearer_token()
     livebarn.get_surfaces()
-    rink_name = "Westchester Skating Academy"
-    surface_name = "USA Rink"
-    date = "2024-09-01" # YYYY-MM-DD
-    time = "13:00" # HH:MM
+    rink_name = "World Ice Arena"
+    surface_name = "Rink #1"
+    session_date = "2024-09-01" # YYYY-MM-DD
+    session_time = "13:00" # HH:MM
     feed_mode_id = 4 # 4 -> Panoramic, 5 -> Auto Tracking
+    directory = f"{rink_name.replace(' ', '_')}_{surface_name.replace(' ', '_')}_{session_date.replace('-', '_')}_{session_time.replace(':', '_')}_{int(time.time())}"
+    surface_id = None
     for surface in livebarn.surfaces:
         if surface["venue_name"] == rink_name and surface["surface_name"] == surface_name:
-            content_urls = livebarn.get_content_urls(surface_id=surface["id"], feed_mode_id=feed_mode_id, begin_date=f"{date}T{time}")
-            print("Downloading session segments")
-            for chunk in divide_chunks(content_urls, 10):
-                asyncio.run(livebarn.download_content(chunk))
+            surface_id = surface["id"]
+            break
+    content_urls = livebarn.get_content_urls(surface_id=surface_id, feed_mode_id=feed_mode_id, begin_date=f"{session_date}T{session_time}")
+    print("Downloading session segments...", end="")
+    chunks = list(divide_chunks(content_urls, 10))
+    for x, chunk in enumerate(chunks):
+        asyncio.run(livebarn.download_content(chunk))
+        print(f"{((x + 1) / len(chunks) ) * 100}%", end="...")
+    print("Success")
+    print("Combining files segments...", end="")
+    livebarn.combine_session_segments()
+    print("Success")
+    print("Deleting temporary files...", end="")
+    shutil.rmtree(f"./files/tmp/{directory}", ignore_errors=True)
+    print("Success")
