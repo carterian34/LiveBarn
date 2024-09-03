@@ -8,6 +8,7 @@ import os
 import time
 import shutil
 from natsort import natsorted
+from progressbar import ProgressBar, Percentage, Bar
 
 credentials = dotenv_values(".env")
 
@@ -71,7 +72,7 @@ class LiveBarn:
         except json.JSONDecodeError:
             print("Failed")
 
-    def get_session_details(self, session, url, code):
+    def get_session_details(self, session, url, code="0000"):
         headers = {"Authorization": f"Bearer {self.bearer_token}"}
         thirty_minute_sessions = session.get(url + f"/code/{code}", headers=headers).json()
         if not thirty_minute_sessions:
@@ -79,10 +80,10 @@ class LiveBarn:
             exit()
         return thirty_minute_sessions[0]
 
-    def get_content_urls(self, surface_id, feed_mode_id, begin_date, code="0000"):
+    def get_content_urls(self, surface_id, feed_mode_id, begin_date):
         with requests.Session() as session:
             url = f"{self.url}/api/v2.0.0/media/surfaceid/{surface_id}/feedmodeid/{feed_mode_id}/begindate/{begin_date}"
-            rink_session = self.get_session_details(session=session, code=code, url=url)
+            rink_session = self.get_session_details(session=session, url=url)
 
             if "privateSession" in rink_session:
                 print("Session is private")
@@ -93,7 +94,7 @@ class LiveBarn:
                     for index, result in enumerate(asyncio.run(self.crack_session_password(url, chunk))):
                         try:
                             if "url" in result[0]:
-                                code = int(chunk[0]) + int(index)
+                                code = str(int(chunk[0]) + int(index))
                                 print(f"Done...Passcode is {code}")
                                 rink_session = self.get_session_details(session=session, code=code, url=url)
                                 break
@@ -134,28 +135,31 @@ class LiveBarn:
                     pass
             return results
 
-    def create_download_content_jobs(self, session, urls):
-        tasks = []
+    @staticmethod
+    def create_download_content_jobs(session, urls):
+        download_content_jobs = []
         for url in urls:
-            tasks.append(session.get(url, verify_ssl=False))
-        return tasks
+            download_content_jobs.append(session.get(url, verify_ssl=False))
+        return download_content_jobs
 
     async def download_content(self, urls):
         async with aiohttp.ClientSession() as session:
-            tasks = self.create_download_content_jobs(session, urls)
-            responses = await asyncio.gather(*tasks)
+            if not os.path.exists(f"./files/tmp/{directory}"):
+                os.makedirs(f"./files/tmp/{directory}")
+            download_content_jobs = self.create_download_content_jobs(session, urls)
+            responses = await asyncio.gather(*download_content_jobs)
             for response in responses:
-                if not os.path.exists(f"./files/tmp/{directory}"):
-                    os.makedirs(f"./files/tmp/{directory}")
                 with open(f"./files/tmp/{directory}/{urlparse(str(response.url)).path.split('/')[-1]}", "wb") as file:
                     file.write(await response.content.read())
 
-    def combine_session_segments(self):
+    @staticmethod
+    def combine_session_segments():
         files = natsorted(os.listdir(f"./files/tmp/{directory}"))
         with open(f'./{directory}.ts', 'wb') as merged:
-            for ts_file in files:
+            for x, ts_file in enumerate(files):
                 with open(f'./files/tmp/{directory}/{ts_file}', 'rb') as mergefile:
                     shutil.copyfileobj(mergefile, merged)
+                combine_segments_pbar.update(x)
 
 if __name__ == '__main__':
     if not os.path.exists("./files"):
@@ -166,27 +170,36 @@ if __name__ == '__main__':
     livebarn = LiveBarn(username=credentials["username"], password=credentials["password"])
     livebarn.generate_bearer_token()
     livebarn.get_surfaces()
-    rink_name = "World Ice Arena"
-    surface_name = "Rink #1"
-    session_date = "2024-09-01" # YYYY-MM-DD
-    session_time = "13:00" # HH:MM
-    feed_mode_id = 4 # 4 -> Panoramic, 5 -> Auto Tracking
-    directory = f"{rink_name.replace(' ', '_')}_{surface_name.replace(' ', '_')}_{session_date.replace('-', '_')}_{session_time.replace(':', '_')}_{int(time.time())}"
-    surface_id = None
-    for surface in livebarn.surfaces:
-        if surface["venue_name"] == rink_name and surface["surface_name"] == surface_name:
-            surface_id = surface["id"]
-            break
-    content_urls = livebarn.get_content_urls(surface_id=surface_id, feed_mode_id=feed_mode_id, begin_date=f"{session_date}T{session_time}")
-    print("Downloading session segments...", end="")
-    chunks = list(divide_chunks(content_urls, 10))
-    for x, chunk in enumerate(chunks):
-        asyncio.run(livebarn.download_content(chunk))
-        print(f"{((x + 1) / len(chunks) ) * 100}%", end="...")
-    print("Success")
-    print("Combining files segments...", end="")
-    livebarn.combine_session_segments()
-    print("Success")
-    print("Deleting temporary files...", end="")
-    shutil.rmtree(f"./files/tmp/{directory}", ignore_errors=True)
-    print("Success")
+
+
+    rink_name = "Montclair State Arena"
+    surface_name = "Rocky"
+    session_date = "2024-08-23" # YYYY-MM-DD
+    session_times = ["21:00", "21:30", "22:00", "22:30"]      # HH:MM
+    feed_mode_id = 4  # 4 -> Panoramic, 5 -> Auto Tracking
+
+    for session_time in session_times:
+        directory = f"{rink_name.replace(' ', '_')}_{surface_name.replace(' ', '_')}_{session_date.replace('-', '_')}_{session_time.replace(':', '_')}_{int(time.time())}"
+        surface_id = None
+        for surface in livebarn.surfaces:
+            if surface["venue_name"] == rink_name and surface["surface_name"] == surface_name:
+                surface_id = surface["id"]
+                break
+        else:
+            print("No surface found")
+            exit()
+        content_urls = livebarn.get_content_urls(surface_id=surface_id, feed_mode_id=feed_mode_id, begin_date=f"{session_date}T{session_time}")
+        chunks = list(divide_chunks(content_urls, 10))
+        widgets = ['Downloading session segments:', Percentage(), ' ', Bar(marker='=', left='[', right=']'), ' ']
+        download_segments_pbar = ProgressBar(widgets=widgets, maxval=len(chunks)).start()  # Progressbar can guess maxval automatically.
+        for x, chunk in enumerate(chunks):
+            asyncio.run(livebarn.download_content(chunk))
+            download_segments_pbar.update(x)
+        download_segments_pbar.finish()
+        widgets = ['Combining session segments:', Percentage(), ' ', Bar(marker='=', left='[', right=']'), ' ']
+        combine_segments_pbar = ProgressBar(widgets=widgets, maxval=len(content_urls)).start()  # Progressbar can guess maxval automatically.
+        livebarn.combine_session_segments()
+        combine_segments_pbar.finish()
+        print("Deleting temporary files...", end="")
+        shutil.rmtree(f"./files/tmp/{directory}", ignore_errors=True)
+        print("Success")
