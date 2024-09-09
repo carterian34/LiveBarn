@@ -8,7 +8,7 @@ import os
 import time
 import shutil
 from natsort import natsorted
-from progressbar import ProgressBar, Percentage, Bar
+from progressbar import ProgressBar, Percentage, Bar, Timer
 
 credentials = dotenv_values(".env")
 
@@ -77,7 +77,7 @@ class LiveBarn:
         thirty_minute_sessions = session.get(url + f"/code/{code}", headers=headers).json()
         if not thirty_minute_sessions:
             print("No sessions found")
-            exit()
+        print(thirty_minute_sessions)
         return thirty_minute_sessions[0]
 
     def get_content_urls(self, surface_id, feed_mode_id, begin_date):
@@ -172,23 +172,28 @@ if __name__ == '__main__':
     livebarn.get_surfaces()
 
 
-    rink_name = "Montclair State Arena"
-    surface_name = "Rocky"
-    session_date = "2024-08-23" # YYYY-MM-DD
-    session_times = ["21:00", "21:30", "22:00", "22:30"]      # HH:MM
-    feed_mode_id = 4  # 4 -> Panoramic, 5 -> Auto Tracking
+    sessions = [
+        {
+            "venue_name": "Montclair State Arena",
+            "surface_name": "Rocky",
+            "date": "2024-09-06",
+            "time": "22:30",
+            "feed_mode": 4
+        }
+    ]
 
-    for session_time in session_times:
-        directory = f"{rink_name.replace(' ', '_')}_{surface_name.replace(' ', '_')}_{session_date.replace('-', '_')}_{session_time.replace(':', '_')}_{int(time.time())}"
+
+    for session in sessions:
+        directory = f"{session['venue_name'].replace(' ', '_')}_{session['surface_name'].replace(' ', '_')}_{session["date"].replace('-', '_')}_{session["time"].replace(':', '_')}_{int(time.time())}"
         surface_id = None
         for surface in livebarn.surfaces:
-            if surface["venue_name"] == rink_name and surface["surface_name"] == surface_name:
+            if surface["venue_name"] == session["venue_name"] and surface["surface_name"] == session["surface_name"]:
                 surface_id = surface["id"]
                 break
         else:
             print("No surface found")
             exit()
-        content_urls = livebarn.get_content_urls(surface_id=surface_id, feed_mode_id=feed_mode_id, begin_date=f"{session_date}T{session_time}")
+        content_urls = livebarn.get_content_urls(surface_id=surface_id, feed_mode_id=session['feed_mode'], begin_date=f"{session['date']}T{session['time']}")
         chunks = list(divide_chunks(content_urls, 10))
         widgets = ['Downloading session segments:', Percentage(), ' ', Bar(marker='=', left='[', right=']'), ' ']
         download_segments_pbar = ProgressBar(widgets=widgets, maxval=len(chunks)).start()  # Progressbar can guess maxval automatically.
