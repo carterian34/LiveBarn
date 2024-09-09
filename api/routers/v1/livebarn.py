@@ -9,6 +9,7 @@ import asyncio
 import aiohttp
 import json
 import os
+import subprocess
 
 url = "https://webapi.livebarn.com/api/v2.0.0"
 router = APIRouter(tags=["auth"], responses={200: {"description": "Success"}})
@@ -135,5 +136,9 @@ def create_surface_session_download(access_token: Annotated[str, Depends(has_acc
                 else:
                     continue
                 break
-        os.system(f"../api/ffmpeg -y -i {session_details["url"]} -c copy ../files/{filename}.mp4")
+        pwd_process = subprocess.Popen(["pwd"], stdout=subprocess.PIPE, text=True)
+        pwd, error = pwd_process.communicate()
+        combine_process = subprocess.call([f"{pwd.replace('/api', '').strip()}/ffmpeg", "-y", "-i" , f"{session_details["url"]}", "-c", "copy", f"../files/{filename}.mp4"])
+        if combine_process != 0:
+            raise HTTPException(status_code=500, detail="Failed to download.")
         return JSONResponse(status_code=201, content={"success": True, "filename": f"{filename}.mp4"})

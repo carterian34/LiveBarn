@@ -45,6 +45,8 @@ def has_feed_mode(feed_mode: int = None):
     return feed_mode
 
 def has_filename(filename: str = None):
-    if filename is None:
-        raise HTTPException(status_code=400, detail="Missing filename")
+    if filename is None or filename == "":
+        raise HTTPException(status_code=400, detail="Missing file name")
+    if len(filename) > 251:
+        raise HTTPException(status_code=400, detail="File name too long")
     return filename
