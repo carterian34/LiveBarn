@@ -77,7 +77,6 @@ class LiveBarn:
         thirty_minute_sessions = session.get(url + f"/code/{code}", headers=headers).json()
         if not thirty_minute_sessions:
             print("No sessions found")
-        print(thirty_minute_sessions)
         return thirty_minute_sessions[0]
 
     def get_content_urls(self, surface_id, feed_mode_id, begin_date):
@@ -174,10 +173,10 @@ if __name__ == '__main__':
 
     sessions = [
         {
-            "venue_name": "Montclair State Arena",
-            "surface_name": "Rocky",
-            "date": "2024-09-06",
-            "time": "22:30",
+            "venue_name": "757swim",
+            "surface_name": "Pool #1",
+            "date": "2024-09-11",
+            "time": "09:00",
             "feed_mode": 4
         }
     ]

@@ -1,5 +1,4 @@
-from fastapi import Body, HTTPException, Depends, Request
-from typing import Annotated
+from fastapi import Body, HTTPException, Request
 from datetime import datetime
 
 def has_credentials(credentials: dict = Body(...), ):
@@ -28,7 +27,8 @@ def has_valid_date(date: str = None):
         raise HTTPException(status_code=400, detail="Invalid date")
     return date
 
-def has_valid_time(time: str = None):
+def has_valid_time(data: dict = Body(...)):
+    time = data["time"]
     if time is None:
         raise HTTPException(status_code=400, detail="Missing valid time")
     try:
@@ -38,13 +38,15 @@ def has_valid_time(time: str = None):
     return time
 
 def has_feed_mode(feed_mode: int = None):
+
     if feed_mode is None:
         raise HTTPException(status_code=400, detail="Missing feed mode")
     if feed_mode not in [4, 5]:
         raise HTTPException(status_code=400, detail="Invalid feed mode")
     return feed_mode
 
-def has_filename(filename: str = None):
+def has_filename(data: dict = Body(...)):
+    filename = data["filename"]
     if filename is None or filename == "":
         raise HTTPException(status_code=400, detail="Missing file name")
     if len(filename) > 251:
